@@ -9,9 +9,9 @@ use reqwest::Client;
 
 /// Proxies a YouTube channel feed, filters out shorts from the RSS feed by extracting video
 /// information from the channel page
-pub async fn proxy_feed(handle: &str, client: &Client) -> Result<Feed, Error> {
+pub async fn proxy_feed(id_or_handle: &str, client: &Client) -> Result<Feed, Error> {
     // 1. extract channel data and video information from YouTube
-    let mut extraction = extractor::extract_data(handle, client).await?;
+    let mut extraction = extractor::extract_data(id_or_handle, client).await?;
     let extracted_videos_count = extraction.videos.len();
     // 2. Use channel id to fetch feed from YouTube RSS server
     let feed = fetch_feed(&extraction.channel.id, client).await?;

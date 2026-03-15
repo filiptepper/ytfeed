@@ -12,8 +12,18 @@ pub struct Feed {
 }
 
 impl Feed {
-    pub fn into_atom(self, base_url: &str, handle: &str, query_string: &str) -> AtomFeed {
-        let mut self_link = base_url.to_string() + "@" + handle;
+    pub fn into_atom(
+        self,
+        base_url: &str,
+        id_or_handle: &str,
+        query_string: &str,
+        is_channel: bool,
+    ) -> AtomFeed {
+        let mut self_link = if is_channel {
+            base_url.to_string() + "channel/" + id_or_handle
+        } else {
+            base_url.to_string() + "@" + id_or_handle
+        };
         if !query_string.is_empty() {
             self_link.push('?');
             self_link.push_str(query_string);

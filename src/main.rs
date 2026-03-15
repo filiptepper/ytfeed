@@ -61,6 +61,7 @@ async fn main() {
     let socket_address = config.socket_addres;
 
     let client = Client::builder()
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .brotli(true) // reduce bandwidth, youtube.com supports it
         .gzip(true)
         .timeout(Duration::new(10, 0))
@@ -74,6 +75,7 @@ async fn main() {
 
     let router = Router::new()
         .route("/@{handle}", get(get_feed))
+        .route("/channel/{id}", get(get_channel_feed))
         .route("/health", get(get_health))
         .layer(Extension(client))
         .layer(Extension(HashMap::<String, String>::new()))
@@ -91,23 +93,43 @@ async fn main() {
 
 async fn get_feed(
     Path(handle): Path<String>,
+    query: Query<Filter>,
+    http_client: Extension<Client>,
+    feed_cache: Extension<Cache<String, Option<Feed>>>,
+    base_url: Extension<String>,
+) -> Result<Response, Error> {
+    get_feed_internal(handle, query, http_client, feed_cache, base_url).await
+}
+
+async fn get_channel_feed(
+    Path(id): Path<String>,
+    query: Query<Filter>,
+    http_client: Extension<Client>,
+    feed_cache: Extension<Cache<String, Option<Feed>>>,
+    base_url: Extension<String>,
+) -> Result<Response, Error> {
+    get_feed_internal(id, query, http_client, feed_cache, base_url).await
+}
+
+async fn get_feed_internal(
+    id_or_handle: String,
     Query(filter): Query<Filter>,
     Extension(http_client): Extension<Client>,
     Extension(feed_cache): Extension<Cache<String, Option<Feed>>>,
     Extension(base_url): Extension<String>,
 ) -> Result<Response, Error> {
-    tracing::info!("get feed '{}'", handle);
+    tracing::info!("get feed '{}'", id_or_handle);
 
     let feed = {
-        let handle = handle.clone();
+        let id_or_handle = id_or_handle.clone();
         let http_client = http_client.clone();
         feed_cache
-            .get_cached(handle.clone(), || {
+            .get_cached(id_or_handle.clone(), || {
                 Box::pin(async move {
-                    match proxy::proxy_feed(&handle, &http_client).await {
+                    match proxy::proxy_feed(&id_or_handle, &http_client).await {
                         Ok(feed) => Ok::<_, Error>(Some(feed)),
                         Err(err) => {
-                            tracing::error!("failed to get data from channel '{handle}': {err}");
+                            tracing::error!("failed to get data from channel '{id_or_handle}': {err}");
                             Ok::<_, Error>(None)
                         }
                     }
@@ -115,12 +137,13 @@ async fn get_feed(
             })
             .await?
     }
-    .ok_or(Error::Proxy(handle.clone()))?;
+    .ok_or(Error::Proxy(id_or_handle.clone()))?;
 
     let filtered_feed = filter.apply(feed)?;
 
+    let is_channel = id_or_handle.starts_with("UC");
     let feed_str = filtered_feed
-        .into_atom(&base_url, &handle, &filter.query_string()?)
+        .into_atom(&base_url, &id_or_handle, &filter.query_string()?, is_channel)
         .to_string();
 
     Ok(Response::builder()
